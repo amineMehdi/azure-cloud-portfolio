@@ -6,8 +6,8 @@ teardown.
 
 ## Current status
 
-**Last reviewed:** 2026-08-15  
-**Roadmap position:** Phase 0 complete. Phase 1 (VNet/subnets/NSGs) starting in `terraform/dev`.
+**Last reviewed:** 2026-08-24  
+**Roadmap position:** Phase 0 complete. Phase 1 (VNet/subnets/NSGs) mid-way in `terraform/dev` — subnets + NSG skeleton built, NSG rules reviewed and need fixes before apply.
 
 ### Evidence in the repository
 - `terraform/main.tf` has a minimal AzureRM provider and resource-group
@@ -43,6 +43,31 @@ teardown.
 - `.gitignore` tightened: removes blanket `.*` so `.terraform.lock.hcl`
   files are committable; keeps `.terraform/`, `*.tfstate*`, `.env`, `.pi/`
   ignored.
+
+### Phase 1 progress (2026-08-24, session 2 — unapplied, user to commit/push)
+- `terraform/dev/main.tf` now has: VNet `main-vnet` 10.0.0.0/16, three subnets
+  (app-subnet 10.0.1.0/24, pe-subnet 10.0.2.0/24, vpn-subnet 10.0.3.0/24),
+  one NSG per subnet, each wired via `azurerm_subnet_network_security_group_association`.
+- Subnet delegation: NOT used anywhere (correct for now). Concepts covered this session:
+  delegation = reserved-floor sign for VNet-injected services (Flexible Server, Container Apps);
+  private endpoint = private door to Microsoft-owned PaaS (not needed for VPS DB); private DNS
+  deferred until a PE exists. On-prem DB path stays tunnel + UDR, deliberately no PE.
+- NSG review findings (user's draft, not yet fixed):
+  1. `app-nsg` has an empty `security_rule {}` block → validate fails; must be deleted
+     (NSG with zero custom rules is legitimate — default rules already allow VNet traffic).
+  2. `vpn-nsg` rule `allowTunnelVPS` uses `Tcp` — WireGuard is **UDP**; also missing
+     `direction` (validate fails) and source pinning — should be inbound UDP 51820 from
+     the VPS public IP (least privilege).
+  3. `pe-nsg` `allowHTTPS` is outbound 443 on the PE side — wrong actor; the PE answers,
+     the app initiates. Rule belongs inbound on pe-subnet (or outbound on app-nsg).
+  4. Tag inconsistency: only pe-nsg has tags. `terraform fmt` pending.
+- `terraform validate` (provider ~>3.0.2) confirms failures 1 and 2.
+- User's correct takeaways this session: "default-deny mindset" = write explicit allows
+  above Azure's 65500 default denies; empty NSG fine for Phase 1; explicit rules are
+  currently redundant with defaults (README must say this honestly).
+- Work insight: user's "flexible server SQL" at work required an exclusive subnet —
+  consistent with VNet-injected service needing a delegated subnet. Exact product
+  (PG/MySQL Flexible Server vs SQL MI vs SQL DB) still unconfirmed.
 
 ### Phase 0 verification (confirmed 2026-08-15)
 - `allowBlobPublicAccess: false` on the state storage account.
@@ -85,11 +110,21 @@ teardown.
 
 ## Next mentoring checkpoint
 
-Phase 1 in `terraform/dev`: VNet + subnets + NSGs, nothing internet-facing
-yet. Learn subnet delegation, NSG evaluation order, service vs. private
-endpoint. Use Network Watcher (effective routes/NSG/IP flow verify) to
-inspect. Deliverable: diagram + README explaining why each subnet/NSG rule
-exists, reviewed before moving on.
+Resume Phase 1, session 2 of 2026-08-24 (user said "we'll continue later" after
+committing/pushing):
+1. Fix the three NSG findings above (delete empty rule block, UDP 51820 inbound
+   from VPS public IP, pe rule direction/actor). Then `fmt` → `plan` → `apply`.
+2. Apply, then Network Watcher → Effective security rules per subnet;
+   screenshot the custom-rules-over-defaults stack.
+3. Phase 1 deliverable: diagram + README with a "who initiates / who answers"
+   rule table explaining why each subnet/NSG rule exists (and why NSGs are
+   rule-minimal in Phase 1). Review before moving to Phase 2.
+4. PE + private DNS on the storage account = later phase (cheap teaching
+   exercise, destroyed after; beware locking Terraform state backend if public
+   access gets disabled).
+
+AZ-104 mapping so far: NSG rule priority/evaluation, default security rules,
+statefulness, service tags; subnet delegation for VNet-injected services.
 
 Deferred (revisit in Phase 3): shared-key access on state storage, SP blob
 data role, Entra/RBAC backend — least privilege pass.
