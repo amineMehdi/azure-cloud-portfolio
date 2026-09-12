@@ -18,45 +18,47 @@ provider "azurerm" {
 
 variable "resource_group_name" {
   description = "Resource Group Name for DEV"
-  type = string
-  default = "RG-Dev"
+  type        = string
+  default     = "RG-DEV"
 }
 
 variable "vnet_name" {
   description = "Virtual Network Name"
-  type = string
-  default = "main-vnet"
+  type        = string
+  default     = "main-vnet"
 }
 
 resource "azurerm_resource_group" "RGDev" {
- name = var.resource_group_name
- location = "westeurope"
+  name     = var.resource_group_name
+  location = "westeurope"
 }
 
 resource "azurerm_virtual_network" "MainVNet" {
-  name = var.vnet_name
+  name                = var.vnet_name
   resource_group_name = azurerm_resource_group.RGDev.name
-  location = azurerm_resource_group.RGDev.location
-  address_space = [ "10.0.0.0/16" ]
+  location            = azurerm_resource_group.RGDev.location
+  address_space       = ["10.0.0.0/16"]
   tags = {
-    project = "Portfolio"
+    project     = "Portfolio"
     environment = "Dev"
   }
 
 }
 
 resource "azurerm_subnet" "appSubnet" {
-  name = "app-subnet"
-  resource_group_name = azurerm_resource_group.RGDev.name
+  name                 = "app-subnet"
+  resource_group_name  = azurerm_resource_group.RGDev.name
   virtual_network_name = azurerm_virtual_network.MainVNet.name
-  address_prefixes = ["10.0.1.0/24"]
+  address_prefixes     = ["10.0.1.0/24"]
 }
 
 resource "azurerm_network_security_group" "app-nsg" {
-  name = "app-nsg"
-  location = azurerm_resource_group.RGDev.location
+  name                = "app-nsg"
+  location            = azurerm_resource_group.RGDev.location
   resource_group_name = azurerm_resource_group.RGDev.name
 }
+
+
 resource "azurerm_subnet_network_security_group_association" "app-sub-nsg-association" {
   subnet_id                 = azurerm_subnet.appSubnet.id
   network_security_group_id = azurerm_network_security_group.app-nsg.id
@@ -64,28 +66,31 @@ resource "azurerm_subnet_network_security_group_association" "app-sub-nsg-associ
 
 
 resource "azurerm_subnet" "pe-subnet" {
-  name = "pe-subnet"
-  resource_group_name = azurerm_resource_group.RGDev.name
-  virtual_network_name = azurerm_virtual_network.MainVNet.name
-  address_prefixes = ["10.0.2.0/24"]
+  name                                           = "pe-subnet"
+  resource_group_name                            = azurerm_resource_group.RGDev.name
+  virtual_network_name                           = azurerm_virtual_network.MainVNet.name
+  address_prefixes                               = ["10.0.2.0/24"]
+  enforce_private_link_endpoint_network_policies = true
 }
 
 resource "azurerm_network_security_group" "pe-nsg" {
-  name = "pe-nsg"
-  location = azurerm_resource_group.RGDev.location
+  name                = "pe-nsg"
+  location            = azurerm_resource_group.RGDev.location
   resource_group_name = azurerm_resource_group.RGDev.name
 
   security_rule {
-    name = "allowHTTPS"
-    priority = 100
-    direction = "Outbound"
-    access = "Allow"
-    protocol = "Udp"
-    destination_port_range = 443
+    name                       = "allow-wireguard-from-vps"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    source_port_range          = "*"
+    destination_port_range     = "51820"
+    source_address_prefix      = "62.238.56.5"
+    destination_address_prefix = "*"
   }
 
   tags = {
-    project = "Portfolio"
+    project     = "Portfolio"
     environment = "Dev"
   }
 }
@@ -95,26 +100,26 @@ resource "azurerm_subnet_network_security_group_association" "pe-sub-nsg-associa
 }
 
 resource "azurerm_subnet" "vpn-subnet" {
-  name = "vpn-subnet"
-  resource_group_name = azurerm_resource_group.RGDev.name
+  name                 = "vpn-subnet"
+  resource_group_name  = azurerm_resource_group.RGDev.name
   virtual_network_name = azurerm_virtual_network.MainVNet.name
-  address_prefixes = ["10.0.3.0/24"]
+  address_prefixes     = ["10.0.3.0/24"]
 }
 
 resource "azurerm_network_security_group" "vpn-nsg" {
-  name = "vpn-nsg"
-  location = azurerm_resource_group.RGDev.location
+  name                = "vpn-nsg"
+  location            = azurerm_resource_group.RGDev.location
   resource_group_name = azurerm_resource_group.RGDev.name
 
   security_rule {
-    name="allowTunnelVPS"
-    priority = 100
-    direction = "Outbound"
-    access = "Allow"
-    protocol = "Tcp"
+    name                   = "allowTunnelVPS"
+    priority               = 100
+    direction              = "Outbound"
+    access                 = "Allow"
+    protocol               = "Tcp"
     destination_port_range = 51820
-    source_address_prefix = "10.2.3.4"
-    
+    source_address_prefix  = "10.2.3.4"
+
   }
 }
 resource "azurerm_subnet_network_security_group_association" "vpn-subnet-nsg-association" {

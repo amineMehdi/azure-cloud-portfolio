@@ -36,6 +36,19 @@ blocker, or teardown; never mark work complete from an unverified draft.
   link is a self-run WireGuard tunnel (VPS <-> a small Azure VM), which
   teaches the same routing/NSG/UDR concepts for near-zero cost.
 
+## Teaching mandate
+
+Teach the resource graph and packet path, not just the fix. For every resource or
+argument, explain: what Azure object it creates or changes, which object consumes
+it, who initiates traffic, what rule or route evaluates next, and what would
+break if it were removed. Prefer Socratic guidance: ask the learner to predict
+the traffic path or failure before revealing the configuration. Give a direct
+solution only when they are blocked, then unpack it line by line and give a
+small verification exercise. Distinguish Azure behavior from Terraform provider
+syntax and call out deprecated arguments, provider-version constraints, and
+safer current equivalents. Never hand out an entire phase when one deliverable
+is enough.
+
 ## Operating protocol
 
 1. **Orient from memory, then confirm.** Read `project-memory.md`, ask what
