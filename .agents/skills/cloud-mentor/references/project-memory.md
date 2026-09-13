@@ -6,10 +6,10 @@ teardown.
 
 ## Current status
 
-**Last reviewed:** 2026-09-12  
-**Roadmap position:** Phase 1 (VNet/subnets/NSGs) — code complete for 3 subnets
-+ 3 NSGs, RG imported. **Nothing applied yet**; one blocker stands between the
-config and a clean apply (RG name casing, below).
+**Last reviewed:** 2026-09-13  
+**Roadmap position:** Phase 1 complete. VNet, three subnets, three NSGs,
+associations, documentation, and Azure deployment are confirmed. Ready to
+discuss Phase 2 design before implementation.
 
 ### Evidence in the repository
 - `terraform/main.tf` has a minimal AzureRM provider and resource-group
@@ -46,53 +46,27 @@ config and a clean apply (RG name casing, below).
   files are committable; keeps `.terraform/`, `*.tfstate*`, `.env`, `.pi/`
   ignored.
 
-### Phase 1 progress (started 2026-08-24; re-verified 2026-09-12)
-- `terraform/dev/main.tf` (122 lines) has: VNet `main-vnet` 10.0.0.0/16, three
-  subnets (app-subnet 10.0.1.0/24, pe-subnet 10.0.2.0/24, vpn-subnet
-  10.0.3.0/24), one NSG per subnet, each wired via
-  `azurerm_subnet_network_security_group_association`.
-- Subnet delegation: NOT used anywhere (correct for now). Concepts covered:
-  delegation = reserved-floor sign for VNet-injected services (Flexible Server, Container Apps);
-  private endpoint = private door to Microsoft-owned PaaS (not needed for VPS DB); private DNS
-  deferred until a PE exists. On-prem DB path stays tunnel + UDR, deliberately no PE.
-- **Blocker (found 2026-09-12):** `RG-DEV` was imported into `dev` state, so
-  its stored name is `RG-DEV` while the config default is `RG-Dev`. Terraform
-  plans **must be replaced** (destroy + recreate) — an apply would delete the
-  imported RG. Fix: match the config to Azure's casing (`RG-DEV`); Azure RG
-  names are case-insensitive but case-preserving, and Terraform compares
-  literally.
-- `terraform validate` passes. `terraform plan` = **11 to add, 0 change,
-  1 destroy** (the RG replace). Nothing exists in Azure yet: no VNet, no
-  subnet, no NSG.
-- Provider cache and both lock files were lost by a `git pull`; `terraform
-  init` re-created `terraform/dev/.terraform.lock.hcl` (azurerm 3.0.2).
-  Lock files are not gitignored but are **untracked** — commit them.
-  `bootstrap` still needs `init`.
-- NSG review findings, status at 2026-09-12:
-  1. `app-nsg` empty `security_rule {}` block — **fixed** (block removed; a
-     zero-rule NSG is legitimate).
-  2. `vpn-nsg` `allowTunnelVPS`: `direction` now present — **fixed**. Still
-     wrong: `protocol = "Tcp"` (WireGuard is UDP 51820), `direction =
-     "Outbound"` with `source_address_prefix = "10.2.3.4"` (an address that
-     isn't in the VNet space, used as *source* on an outbound rule) → the rule
-     can never match. Both custom rules are also redundant: default rule 65001
-     already allows all outbound Internet traffic. The rule that matters is
-     **inbound** UDP 51820 from the VPS public IP (default 65500 denies).
-  3. `pe-nsg` `allowHTTPS` — still wrong: outbound, protocol `Udp` on port 443
-     (HTTPS is TCP), and wrong actor (the PE answers, the app initiates).
-  4. Tag inconsistency (only `pe-nsg` tagged) and `terraform fmt` — untouched.
-  5. `pe-subnet` lacks `enforce_private_link_endpoint_network_policies = true`
-     (3.x arg, default false): without it the subnet NSG/UDR is ignored by any
-     private endpoint NIC. Needed when the PE actually lands.
-- NSG rules in Phase 1 are deliberately rule-minimal: `AllowVnetInBound`
-  (65000) already permits all subnet-to-subnet traffic, so isolation requires
-  an explicit Deny for `VirtualNetwork` at a priority below 65000 — the README
-  must state this honestly instead of implying the rules do something.
-- User's correct takeaway: "default-deny mindset" = write explicit allows
-  above Azure's 65500 default denies; an empty NSG is fine for Phase 1.
-- Work insight: user's "flexible server SQL" at work required an exclusive subnet —
-  consistent with VNet-injected service needing a delegated subnet. Exact product
-  (PG/MySQL Flexible Server vs SQL MI vs SQL DB) still unconfirmed.
+### Phase 1 progress (started 2026-08-24; completed 2026-09-13)
+- `terraform/dev/main.tf` provisions `main-vnet` (`10.0.0.0/16`), three
+  subnets (`app-subnet` `10.0.1.0/24`, `pe-subnet` `10.0.2.0/24`,
+  `vpn-subnet` `10.0.3.0/24`), three NSGs, and one subnet/NSG association per
+  subnet.
+- Terraform plan completed with **10 to add, 0 change, 0 destroy**. Apply
+  completed successfully on 2026-09-13.
+- Azure verification confirmed the VNet address space, all three subnets, and
+  all three NSG associations. A subsequent `terraform plan -detailed-exitcode`
+  reported no changes.
+- NSGs intentionally contain no custom rules yet. Azure default rules remain;
+  the WireGuard UDP/51820 allow belongs in Phase 2 when the Azure VM and VPS
+  public endpoint are real.
+- The incorrect PE HTTPS rule and incorrect WireGuard outbound rule were
+  removed. Private endpoint network policies remain deferred until a PE exists.
+  The AzureRM 3.x argument is deprecated in newer provider versions; current
+  syntax is `private_endpoint_network_policies`.
+- Phase 1 tutorial: `docs/tutorials/phase-1-core-networking.md`.
+- Service principal reference expanded with Terraform authentication and RBAC
+  guidance in `docs/concepts/service-principals-explained.md`.
+- No UDR, Azure VM, private endpoint, private DNS zone, or tunnel exists yet.
 
 ### Phase 0 verification (confirmed 2026-08-15)
 - `allowBlobPublicAccess: false` on the state storage account.
@@ -135,24 +109,15 @@ config and a clean apply (RG name casing, below).
 
 ## Next mentoring checkpoint
 
-Phase 1 close-out, in order:
-1. Fix the RG name casing (`RG-Dev` → `RG-DEV`) so plan stops proposing a
-   destroy/recreate; then `fmt` → `plan` (expect 11 adds, 0 destroys).
-2. Fix the two NSG rules: vpn-nsg → inbound UDP 51820 from the VPS public IP;
-   pe-nsg → drop it (or move the allow to where the initiating actor lives).
-   Add `enforce_private_link_endpoint_network_policies = true` on pe-subnet.
-3. Apply. Verify with `az network nsg rule list` + Network Watcher
-   `show-topology` (effective rules / IP flow verify need a NIC — Phase 2).
-4. Phase 1 deliverable: diagram + README with a "who initiates / who answers"
-   rule table explaining why each subnet/NSG rule exists (and why NSGs are
-   rule-minimal in Phase 1). Review before moving to Phase 2.
-5. Commit `.terraform.lock.hcl` for both roots.
-6. PE + private DNS on a *separate* storage account = later phase (cheap
-   teaching exercise, destroyed after; never on the Terraform state backend —
-   disabling public access there locks Terraform out of its own state).
+Phase 1 is complete. Before implementing Phase 2, discuss and diagram the
+planned packet path: Azure workload → subnet route table → WireGuard VM →
+WireGuard tunnel → VPS. Phase 2 implementation will then add the Azure VM,
+NSG UDP/51820 rule, forwarding, UDR, and Ansible only after the design is
+understood.
 
 AZ-104 mapping so far: NSG rule priority/evaluation, default security rules,
-statefulness, service tags; subnet delegation for VNet-injected services.
+statefulness, service tags, subnet delegation, VNet/subnet design, and
+Network Watcher preparation.
 
 Deferred (revisit in Phase 3): shared-key access on state storage, SP blob
 data role, Entra/RBAC backend — least privilege pass.
