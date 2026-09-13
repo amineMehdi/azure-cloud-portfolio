@@ -1,2 +1,12 @@
-.*
-terraform.tfstate
+# Terraform state — never commit
+*.tfstate
+*.tfstate.*
+
+# Terraform provider & plugin cache dirs
+.terraform/
+**/.terraform/
+.terraform.lock.hcl
+# Local env / secrets
+.env
+*.env
+.venv
