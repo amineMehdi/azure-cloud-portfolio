@@ -25,7 +25,6 @@ association is only an unused rule collection.
 
 | Resource | Azure responsibility | What consumes it |
 |---|---|---|
-| Resource group | Lifecycle and deployment boundary | All Phase 1 resources |
 | VNet | Private address space and Azure routing domain | Subnets and VNet resources |
 | Subnet | Address segment inside the VNet | VM/NIC, private endpoint, or delegated service |
 | NSG | Stateful allow/deny packet filter | Subnet association |
@@ -56,11 +55,6 @@ A subnet does not automatically isolate traffic from other subnets: Azure's
 default `AllowVNetInBound` rule permits VNet traffic unless a higher-priority
 custom deny is added.
 
-No subnet delegation is used here. Delegation reserves a subnet for a service
-that injects managed resources into the VNet, such as a Flexible Server or
-Container Apps environment. The future Private Endpoint subnet is different:
-a private endpoint is an Azure-managed NIC, not a delegated application
-service.
 
 ## NSGs and rule evaluation
 
@@ -106,46 +100,6 @@ endpoint network policies control whether NSGs and/or user-defined routes can
 apply to those endpoint NICs. The setting affects private endpoints in that
 subnet, not ordinary resources.
 
-The project deliberately defers this setting until the private endpoint is
-created. The AzureRM provider 3.x argument is named
-`enforce_private_link_endpoint_network_policies`; newer provider versions use
-`private_endpoint_network_policies` with values such as `Enabled`. Provider
-syntax and Azure behavior are related but not identical; always check the
-pinned provider version before changing the argument.
-
-## UDRs: later phase
-
-A user-defined route is a subnet-level route-table entry. It changes the next
-hop for a destination prefix; it does not create the next hop.
-
-The Phase 2 path will be:
-
-```text
-Azure app NIC
-  └── app-subnet route table
-      └── on-prem CIDR → WireGuard VM private IP
-          └── encrypted tunnel → VPS
-```
-
-The route table must wait until the Azure WireGuard VM exists and has a stable
-private IP. The VM must also forward IP traffic, and the VPS must have a
-return route for the Azure VNet. A UDR by itself cannot create a working VPN.
-
-## Terraform dependency chain
-
-References between resources create both the Azure relationship and Terraform
-dependency ordering:
-
-```hcl
-resource_group_name = azurerm_resource_group.RGDev.name
-subnet_id           = azurerm_subnet.appSubnet.id
-network_security_group_id = azurerm_network_security_group.app-nsg.id
-```
-
-Terraform sees that the resource group must exist before the VNet, the VNet
-before the subnet, and both the subnet and NSG before their association. The
-association is the final wiring step.
-
 ## Phase 1 verification
 
 From `terraform/dev`:
@@ -174,10 +128,3 @@ Effective NIC rules, effective routes, and IP flow verification become useful
 in Phase 2 after the VM and NIC exist. Network Watcher cannot show effective
 NIC state for a resource that does not yet have a NIC.
 
-## Exam connection
-
-- **AZ-104:** virtual networks, subnetting, NSG priorities/default rules,
-  subnet associations, routes, private endpoints, and Network Watcher.
-- **AZ-305:** separating network roles, designing hybrid next hops, and
-  choosing when Azure-managed private connectivity versus self-run VPN
-  connectivity is appropriate.
