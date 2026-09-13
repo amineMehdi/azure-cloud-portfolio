@@ -9,3 +9,5 @@
 # Local env / secrets
 .env
 *.env
+.agents
+.venv
